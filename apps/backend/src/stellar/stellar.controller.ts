@@ -1,0 +1,143 @@
+import { Controller, Get, Post, Param, Body, UseGuards, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
+import { StellarService } from './stellar.service';
+import { NetworkMonitorService } from './network-monitor.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { ValidateRequest } from '../common/decorators/validate-request.decorator';
+import { RateLimit } from '../common/decorators/rate-limit.decorator';
+import { Idempotent } from '../common/decorators/idempotent.decorator';
+import { RateLimitPresets } from '../middleware/rate-limit.middleware';
+import {
+  fundTestnetSchema,
+  mintCredentialSchema,
+  issueCredentialSchema,
+} from '../common/validation/schemas';
+
+@ApiTags('stellar')
+@Controller('stellar')
+export class StellarController {
+  constructor(
+    private stellarService: StellarService,
+    private networkMonitorService: NetworkMonitorService
+  ) {}
+
+  @Get('network-status')
+  @ApiOperation({ summary: 'Get Stellar network health status' })
+  @ApiResponse({ status: 200, description: 'Returns network health metrics' })
+  getNetworkStatus() {
+    return this.networkMonitorService.getNetworkStatus();
+  }
+
+  @Get('balance/:publicKey')
+  @ApiOperation({ summary: 'Get Stellar account balance' })
+  @ApiResponse({ status: 200, description: 'Returns account balances' })
+  getBalance(@Param('publicKey') publicKey: string) {
+    return this.stellarService.getAccountBalance(publicKey);
+  }
+
+  @Post('fund-testnet')
+  @ValidateRequest({ body: fundTestnetSchema })
+  @RateLimit(RateLimitPresets.testnetFunding)
+  @Idempotent()
+  @ApiOperation({
+    summary: 'Fund a testnet account via Friendbot (testnet only)',
+    description:
+      'Support Idempotency-Key header for retry safety. ' +
+      'Same key within 24 hours returns cached result.',
+  })
+  @ApiResponse({ status: 201, description: 'Account funded successfully' })
+  @ApiResponse({ status: 400, description: 'Not available on mainnet or Friendbot error' })
+  async fundTestnet(@Body() body: { publicKey: string }) {
+    return this.stellarService.fundTestnetAccount(body.publicKey);
+  }
+
+  @Post('mint')
+  @ValidateRequest({ body: mintCredentialSchema })
+  @RateLimit({ ...RateLimitPresets.transaction, useAccountId: true })
+  @Idempotent()
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Mint a credential NFT',
+    description:
+      'Support Idempotency-Key header to prevent duplicate NFT minting. ' +
+      'Retries with same key within 24 hours return cached result.',
+  })
+  @ApiBody({ schema: { example: { recipientPublicKey: 'GABC...', courseId: 'uuid' } } })
+  @ApiResponse({ status: 201, description: 'Credential minted successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - admin role required' })
+  mintCredential(@Body() body: { recipientPublicKey: string; courseId: string }) {
+    return this.stellarService.issueCredential(body.recipientPublicKey, body.courseId);
+  }
+
+  @Get('transactions/verify/:txHash')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Verify a Stellar transaction by hash' })
+  @ApiResponse({ status: 200, description: 'Transaction verification result' })
+  verifyTransaction(@Param('txHash') txHash: string) {
+    return this.stellarService.verifyTransaction(txHash);
+  }
+
+  @Get('transactions')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get Stellar transaction audit logs (admin only)' })
+  @ApiResponse({ status: 200, description: 'List of transaction logs' })
+  getTransactionLogs(
+    @Query('publicKey') publicKey?: string,
+    @Query('type') type?: string,
+    @Query('status') status?: string
+  ) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const typeAny: any = type;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const statusAny: any = status;
+    return this.stellarService.getTransactionLogs({
+      recipientPublicKey: publicKey,
+      type: typeAny,
+      status: statusAny,
+    });
+  }
+}
+
+@ApiTags('credentials')
+@Controller('credentials')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@ApiBearerAuth()
+export class CredentialsController {
+  constructor(private stellarService: StellarService) {}
+
+  @Post('issue')
+  @ValidateRequest({ body: issueCredentialSchema })
+  @RateLimit({ ...RateLimitPresets.transaction, useAccountId: true })
+  @Idempotent()
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @Roles('admin')
+  @ApiOperation({
+    summary: 'Issue a credential for course completion',
+    description:
+      'Support Idempotency-Key header to prevent duplicate credential issuance. ' +
+      'Retries with same key within 24 hours return cached result.',
+  })
+  @ApiBody({ schema: { example: { recipientPublicKey: 'GABC...', courseId: 'uuid' } } })
+  @ApiResponse({
+    status: 201,
+    description: 'Credential issued successfully',
+    schema: {
+      example: { data: 'transaction_hash', statusCode: 201, timestamp: '2024-01-01T00:00:00.000Z' },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - admin role required' })
+  issueCredential(@Body() body: { recipientPublicKey: string; courseId: string }) {
+    return this.stellarService.issueCredential(body.recipientPublicKey, body.courseId);
+  }
+}

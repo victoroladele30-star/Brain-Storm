@@ -1,0 +1,7 @@
+[advisories]
+ignore = []
+severity_threshold = "high"
+
+[output]
+quiet = false
+deny = ["unmaintained", "unsound", "yanked"]

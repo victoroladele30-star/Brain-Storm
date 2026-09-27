@@ -1,0 +1,34 @@
+{
+  "name": "@brain-storm/sdk",
+  "version": "1.0.0",
+  "description": "TypeScript client SDK for Brain-Storm API (auto-generated from OpenAPI spec)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "test": "jest",
+    "test:coverage": "jest --coverage --coverageThreshold='{\"global\":{\"lines\":85}}'",
+    "test:signing": "jest --testPathPattern=transaction-signing",
+    "generate": "node ../../scripts/generate-sdk.js",
+    "docs": "node scripts/generate-docs.js",
+    "docs:typedoc": "typedoc --out ../../docs/api/sdk src/index.ts"
+  },
+  "peerDependencies": {
+    "axios": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.4",
+    "typescript": "^5.4.0"
+  },
+  "keywords": [
+    "brain-storm",
+    "sdk",
+    "api",
+    "stellar"
+  ],
+  "author": "Brain-Storm",
+  "license": "MIT"
+}

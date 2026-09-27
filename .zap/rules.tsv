@@ -1,0 +1,7 @@
+# ZAP Baseline Scan Rules Configuration
+# Format: Rule ID\tStatus\tAction
+# https://www.zaproxy.org/docs/docker/baseline-scan/
+10021	IGNORE	X-Content-Type-Options
+10020	IGNORE	X-Frame-Options
+10036	IGNORE	Server Leaks
+10038	IGNORE	Content Security Policy

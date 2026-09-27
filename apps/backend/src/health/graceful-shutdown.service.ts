@@ -1,0 +1,96 @@
+import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+/**
+ * GracefulShutdownService
+ *
+ * Tracks in-flight requests and delays shutdown until they complete (or the
+ * drain timeout is reached). Wire it up by calling `trackRequest()` and
+ * `releaseRequest()` from a middleware or interceptor.
+ *
+ * Allows registering cleanup handlers (e.g. close DB/RPC connections) that
+ * run after in-flight requests drain.
+ */
+@Injectable()
+export class GracefulShutdownService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(GracefulShutdownService.name);
+
+  /** ms to wait for in-flight requests before forcing shutdown */
+  private readonly drainTimeoutMs: number;
+
+  private inFlightCount = 0;
+  private isShuttingDown = false;
+  private drainResolve: (() => void) | null = null;
+  private cleanupHandlers: Array<() => Promise<void>> = [];
+
+  constructor(private readonly configService: ConfigService) {
+    this.drainTimeoutMs = this.configService.get<number>('shutdown.drainTimeoutMs') ?? 10000;
+  }
+
+  onModuleInit() {
+    process.on('SIGTERM', () => this.shutdown('SIGTERM'));
+    process.on('SIGINT', () => this.shutdown('SIGINT'));
+  }
+
+  onModuleDestroy() {
+    // Ensure cleanup even when NestJS tears down the module
+    this.isShuttingDown = true;
+  }
+
+  trackRequest(): void {
+    this.inFlightCount++;
+  }
+
+  releaseRequest(): void {
+    if (this.inFlightCount > 0) this.inFlightCount--;
+    if (this.isShuttingDown && this.inFlightCount === 0) {
+      this.drainResolve?.();
+    }
+  }
+
+  get shuttingDown(): boolean {
+    return this.isShuttingDown;
+  }
+
+  registerCleanup(handler: () => Promise<void>): void {
+    this.cleanupHandlers.push(handler);
+  }
+
+  private async shutdown(signal: string): Promise<void> {
+    this.logger.log(
+      `Received ${signal}. Starting graceful shutdown. In-flight: ${this.inFlightCount}`
+    );
+    this.isShuttingDown = true;
+
+    if (this.inFlightCount > 0) {
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          this.drainResolve = resolve;
+        }),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error('Drain timeout')), this.drainTimeoutMs)
+        ),
+      ]).catch((err) => {
+        this.logger.warn(
+          `Graceful shutdown: ${err.message}. Forcing exit with ${this.inFlightCount} in-flight requests.`
+        );
+      });
+    }
+
+    this.logger.log('Draining in-flight requests complete. Running cleanup handlers...');
+
+    for (const handler of this.cleanupHandlers) {
+      try {
+        await handler();
+      } catch (err) {
+        this.logger.error(
+          `Cleanup handler failed: ${(err as Error).message}`,
+          (err as Error).stack
+        );
+      }
+    }
+
+    this.logger.log('Graceful shutdown complete.');
+    process.exit(0);
+  }
+}

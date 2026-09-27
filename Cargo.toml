@@ -1,0 +1,64 @@
+[workspace]
+# Resolver 2 keeps dev-dependency features out of non-test builds. Without it a
+# workspace-wide `cargo build --target wasm32-unknown-unknown` unifies
+# `brain-storm-integration`'s dev-dependency on `brain-storm-shared` (default
+# features, i.e. `contract`) into every other contract's copy, re-exporting
+# `SharedContract`'s entry points from each contract's wasm.
+resolver = "2"
+members = [
+    "contracts/analytics",
+    "contracts/integration",
+    "contracts/token",
+    "contracts/shared",
+    "contracts/certificate",
+    "contracts/governance",
+    "contracts/credential_metadata",
+    "contracts/reputation",
+    "contracts/buyback",
+    "contracts/scholarship_fund",
+    "contracts/token_restrictions",
+    "contracts/liquidity_pool",
+    "contracts/grants",
+    "contracts/badges",
+    "contracts/nft",
+    "contracts/registry",
+    "contracts/market",
+    "contracts/dispute",
+    "contracts/royalty_distribution",
+]
+
+[workspace.dependencies]
+# Soroban SDK - latest stable
+soroban-sdk = "20.0.0"
+soroban-cli = "20.0.0"
+
+# Common dependencies
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+anyhow = "1.0"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+lto = true
+debug = false
+strip = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true
+overflow-checks = true
+
+# ── Code-quality enforcement ──────────────────────────────────────────────────
+# rustfmt is configured via rustfmt.toml at the workspace root.
+# Enforce in CI with:   cargo fmt --all -- --check
+# Format locally with:  cargo fmt --all
+#
+# clippy is configured via clippy.toml at the workspace root.
+# Enforce in CI with:   cargo clippy --workspace -- -D warnings
+[workspace.metadata.fmt]
+check_command = "cargo fmt --all -- --check"
+format_command = "cargo fmt --all"
